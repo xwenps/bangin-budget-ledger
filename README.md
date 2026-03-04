@@ -1,4 +1,7 @@
+Check out the "Demo Mode" wih any public google sheet: https://xwenps.github.io/spend-analyzer/
+
 ![Transaction Processor demo](./assets/demo.gif)
+
 
 ## Config
 
