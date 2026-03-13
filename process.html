@@ -46,8 +46,7 @@
     #drop-zone p { color: var(--muted); font-size: 0.9rem; margin-top: 8px; }
 
     /* ── FILE QUEUE ── */
-    .file-queue { display: flex; flex-direction: column; gap: 10px; } /* overflow-x: auto; /* prevent rows from forcing page width */ }
-    .fq-row { overflow-x: auto; }
+    .file-queue { display: flex; flex-direction: column; gap: 10px; } 
     .fq-empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 8px 0; }
     .fq-row {
       display: flex; align-items: center; gap: 10px; padding: 12px 14px;
@@ -69,7 +68,6 @@
     .fq-badge {
       font-size: 0.75rem; color: var(--green); background: #4caf9118;
       border: 1px solid #4caf9140; border-radius: 20px; padding: 3px 10px;
-      /* fixed width pill so all badges align uniformly */
       display: inline-block; flex: 0 0 140px; max-width: 140px;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
@@ -86,13 +84,11 @@
       background: var(--surface); border: 1px solid var(--border); color: var(--text);
       padding: 7px 30px 7px 12px; border-radius: 8px; font-size: 0.82rem;
       outline: none; cursor: pointer;
-      flex: 0 0 200px;        /* fixed select width */
+      flex: 0 0 200px;
       font-family: inherit;
     }
     .fq-select:focus { border-color: var(--accent); }
     .fq-select:hover { border-color: var(--muted); }
-
-    /* per-file text inputs (account name, owner) */
     .fq-input {
       background: var(--surface); border: 1px solid var(--border); color: var(--text);
       padding: 7px 12px; border-radius: 8px; font-size: 0.82rem; outline: none;
@@ -102,14 +98,13 @@
     .fq-input:hover { border-color: var(--muted); }
     .fq-input::placeholder { color: var(--muted); }
     .fq-field { display: flex; flex-direction: column; gap: 3px;
-      flex: 0 0 150px; /* fixed field width for uniform rows */
+      flex: 0 0 150px;
     }
     .fq-field-label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-
     .fq-remove {
       cursor: pointer; color: var(--muted); background: none; border: none;
       font-size: 1rem; padding: 4px 8px; border-radius: 4px; line-height: 1;
-      margin-left: auto; flex-shrink: 0; /* keep button visible and at end */
+      margin-left: auto; flex-shrink: 0;
     }
     .fq-remove:hover { color: var(--red); }
 
@@ -853,7 +848,6 @@ document.getElementById('process-btn').addEventListener('click', () => {
   if (!fileQueue.length) { showError(errEl, 'Add at least one CSV file to process.'); return; }
   const unassigned = fileQueue.filter(f => !f.bank);
   if (unassigned.length) { showError(errEl, 'Please select a bank for: ' + unassigned.map(f => f.name).join(', ')); return; }
-  // account and owner are now per-file (set in fileQueue items)
   const errors = [], allRows = [];
   fileQueue.forEach(f => {
     try {
@@ -871,6 +865,20 @@ document.getElementById('process-btn').addEventListener('click', () => {
   }
   renderPreview(filtered);
 });
+
+async function autoLoadConfig() {
+    try {
+      const res = await fetch('./config.json');
+      if (!res.ok) return;               
+      const obj = await res.json();
+      if (obj && obj.options && Array.isArray(obj.options.accounts)) {
+        const rawJson = JSON.stringify(obj, null, 2);
+        loadAccountConfigObject(obj, rawJson);
+      }
+    } catch { }
+  }
+  autoLoadConfig();
+
 </script>
 </body>
 </html>
