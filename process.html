@@ -373,11 +373,11 @@ const ADAPTERS = {
   },
   citi_custom: {
     label: 'Citi CustomCash Card', dateCol: 'date', descCol: 'description',
-    amountMode: 'debit_credit', debitCol: 'debit', creditCol: 'credit',
+    amountMode: 'debit_credit_negate', debitCol: 'debit', creditCol: 'credit',
   },
   citi_costco: {
     label: 'Citi Costco Anywhere Card', dateCol: 'date', descCol: 'description',
-    amountMode: 'debit_credit', debitCol: 'debit', creditCol: 'credit', ownerCol: 'member name',
+    amountMode: 'debit_credit_negate', debitCol: 'debit', creditCol: 'credit', ownerCol: 'member name',
   },
 };
 
@@ -419,9 +419,10 @@ function parseNum(s) { if (!s || s.trim() === '') return 0; return parseFloat(s.
 
 function normalizeAmount(row, adapter) {
   switch (adapter.amountMode) {
-    case 'signed':       return parseNum(row[adapter.amountCol] || '');
-    case 'amex_negate':  return -(parseNum(row[adapter.amountCol] || ''));
-    case 'debit_credit': return parseNum(row[adapter.creditCol] || '') - parseNum(row[adapter.debitCol] || '');
+    case 'signed':               return parseNum(row[adapter.amountCol]);
+    case 'amex_negate':           return -parseNum(row[adapter.amountCol]);
+    case 'debit_credit':          return parseNum(row[adapter.creditCol]) - parseNum(row[adapter.debitCol]);
+    case 'debit_credit_negate':  return -parseNum(row[adapter.creditCol]) + parseNum(row[adapter.debitCol]);
     default: return 0;
   }
 }
@@ -446,7 +447,9 @@ function transformRows(csvRows, adapterId, globalAccount, globalOwner) {
   const missingDesc = col(adapter.descCol) === -1;
   let missingAmt = false;
   if (adapter.amountMode === 'signed' || adapter.amountMode === 'amex_negate') missingAmt = col(adapter.amountCol) === -1;
-  else if (adapter.amountMode === 'debit_credit') missingAmt = col(adapter.debitCol) === -1 && col(adapter.creditCol) === -1;
+  else if (adapter.amountMode === 'debit_credit' || adapter.amountMode === 'debit_credit_negate') {
+    missingAmt = col(adapter.debitCol) === -1 || col(adapter.creditCol) === -1;
+  }
   if (missingDate || missingDesc || missingAmt) {
     const missing = [];
     if (missingDate) missing.push(`"${adapter.dateCol}"`);
