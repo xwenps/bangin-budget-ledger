@@ -11,46 +11,62 @@
 
 /* ── Design Tokens — Light (default) ───────────────────────────────────────── */
 :root {
-  --bg:       #f8fafc;
-  --surface:  #ffffff;
-  --surface2: #f1f5f9;
-  --surface3: #e2e8f0;
+  --bg:       #f7f6f2;
+  --surface:  #f9f8f5;
+  --surface2: #f3f0ec;
+  --surface3: #edeae5;
   --accent:   #10b981;
   --accent-h: #059669;
-  --text:     #0f172a;
-  --muted:    #64748b;
-  --faint:    #94a3b8;
-  --border:   #e2e8f0;
+  --text:     #28251d;
+  --muted:    #7a7974;
+  --faint:    #bab9b4;
+  --border:   #dcd9d5;
   --green:    #10b981;
   --red:      #ef4444;
-  --shadow-sm: 0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
-  --shadow-md: 0 4px 16px rgba(15,23,42,.08), 0 2px 6px rgba(15,23,42,.05);
-  --shadow-lg: 0 12px 40px rgba(15,23,42,.10), 0 4px 12px rgba(15,23,42,.07);
+  --shadow-sm: 0 1px 3px oklch(0.2 0.01 80 / 0.05), 0 1px 2px oklch(0.2 0.01 80 / 0.03);
+  --shadow-md: 0 4px 16px oklch(0.2 0.01 80 / 0.07), 0 2px 6px oklch(0.2 0.01 80 / 0.04);
+  --shadow-lg: 0 12px 40px oklch(0.2 0.01 80 / 0.09), 0 4px 12px oklch(0.2 0.01 80 / 0.06);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
   --radius-xl: 18px;
   --transition: 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --chart-grid:           rgba(40, 37, 29, 0.07);
+  --chart-border:         rgba(40, 37, 29, 0.09);
+  --chart-tick:           #7a7974;
+  --chart-tooltip-bg:     #f9f8f5;
+  --chart-tooltip-title:  #28251d;
+  --chart-tooltip-body:   #7a7974;
+  --chart-tooltip-border: #dcd9d5;
+  --chart-legend:         #7a7974;
 }
 
 /* ── Design Tokens — Dark ───────────────────────────────────────────────────── */
 [data-theme="dark"] {
-  --bg:       #0f172a;
-  --surface:  #1e293b;
-  --surface2: #263347;
-  --surface3: #334155;
+  --bg:       #171614;
+  --surface:  #1c1b19;
+  --surface2: #201f1d;
+  --surface3: #2d2c2a;
   --accent:   #34d399;
   --accent-h: #10b981;
-  --text:     #f1f5f9;
-  --muted:    #94a3b8;
-  --faint:    #475569;
-  --border:   #334155;
+  --text:     #cdccca;
+  --muted:    #797876;
+  --faint:    #5a5957;
+  --border:   #393836;
   --green:    #34d399;
   --red:      #f87171;
   --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
   --shadow-md: 0 4px 16px rgba(0,0,0,.4);
   --shadow-lg: 0 12px 40px rgba(0,0,0,.5);
-}
+  --chart-grid:           rgba(205, 204, 202, 0.07);
+  --chart-border:         rgba(205, 204, 202, 0.09);
+  --chart-tick:           #797876;
+  --chart-tooltip-bg:     #1c1b19;
+  --chart-tooltip-title:  #cdccca;
+  --chart-tooltip-body:   #797876;
+  --chart-tooltip-border: #393836;
+  --chart-legend:         #797876;
+  }
 
 /* ── Base ────────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -93,17 +109,12 @@ body {
   min-height: 100vh;
   gap: 24px;
   padding: 24px;
-  /* subtle grid pattern */
-  background-image:
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px);
-  background-size: 32px 32px;
-  background-color: var(--bg);
-}
-[data-theme="dark"] #auth-screen {
-  background-image:
-    linear-gradient(rgba(51,65,85,.4) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(51,65,85,.4) 1px, transparent 1px);
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%,
+      color-mix(in oklch, var(--accent) 8%, transparent) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 90%,
+      color-mix(in oklch, var(--accent) 4%, transparent) 0%, transparent 55%),
+    var(--bg);
 }
 
 /* ── Login Card ──────────────────────────────────────────────────────────────── */

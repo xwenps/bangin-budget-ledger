@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Spend Tracker</title>
+  <link rel="icon" type="image/x-icon" href="./favicon.ico">
   <script>
     window.ENV = {
       CLIENT_ID: "${CLIENT_ID}",
@@ -21,7 +22,10 @@
 <div id="auth-screen">
   <div class="login-card">
   <button class="theme-toggle" data-theme-toggle aria-label="Toggle theme"></button>
-  <h1>&#x1F4B8; Spend Tracker</h1>
+  <h1 style="display: flex; flex-direction: column; align-items: center; gap: 0.5em;">
+    <img src="./favicon.ico" alt="💰" style="width: 2em; height: 2em;">
+    Spend Tracker
+  </h1>
       <nav class="header-nav"><a href="./process.html" class="nav-link">&#x1F4C4; Process Transactions</a></nav>
   <p>Enter your credentials to connect your Google Sheet</p>
   <div id="config-form">
@@ -132,6 +136,7 @@
       </div>
       <button class="ctrl-btn" id="cat-type-btn">&#x2699;&#xFE0F; Categories</button>
       <button class="ctrl-btn" id="refresh-btn">&#x27F3; Refresh</button>
+      <button class="theme-toggle" data-theme-toggle aria-label="Toggle theme"></button>
       <div class="user-menu" id="user-menu">
         <button class="user-menu-btn" id="user-menu-btn" aria-haspopup="true" aria-expanded="false">
           <div class="user-avatar-circle" id="user-avatar">

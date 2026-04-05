@@ -73,24 +73,25 @@ function setUserMenu(user) {
 
 // ─── CONFIG / ENV LOADING ──────────────────────────────────────────────────────
 async function loadConfig() {
+
+  let prefilled = false;
+
+  try {
+    const res = await fetch('./config.json');
+    if (!res.ok) throw new Error('no config');
+    CONFIG = await res.json();
+    if (CONFIG.clientId) { document.getElementById('client-id-input').value = CONFIG.clientId; prefilled = true; }
+    if (CONFIG.sheetId)  { document.getElementById('sheet-id-input').value  = CONFIG.sheetId;  prefilled = true; }
+    if (prefilled) document.getElementById('config-status').style.display = 'block';
+    return;
+  } catch {
+    console.log("No pre-fillable config.json found.");
+  }
+
   if (typeof window !== 'undefined' && window.ENV) {
     const env = window.ENV;
     const envClientId = env?.CLIENT_ID;
     const envSheetId = env?.SHEET_ID_DATA;
-    
-    let prefilled = false;
-
-    try {
-      const res = await fetch('./config.json');
-      if (!res.ok) throw new Error('no config');
-      CONFIG = await res.json();
-      if (CONFIG.clientId) { document.getElementById('client-id-input').value = CONFIG.clientId; prefilled = true; }
-      if (CONFIG.sheetId)  { document.getElementById('sheet-id-input').value  = CONFIG.sheetId;  prefilled = true; }
-      if (prefilled) document.getElementById('config-status').style.display = 'block';
-      return;
-    } catch {
-      console.log("No pre-fillable config.json found.");
-    }
 
     if (envClientId || envSheetId) {
 
@@ -105,6 +106,7 @@ async function loadConfig() {
 }
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
+let CONFIG = {};
 let accessToken = null;
 let allData = [];
 let filteredData = [];
@@ -565,10 +567,10 @@ function renderCategoryDonut() {
     data: { labels: sorted.map(e => e[0]), datasets: [{ data: sorted.map(e => e[1]), backgroundColor: palette, borderWidth: 0 }] },
     options: { ...baseOpts(), layout: { padding: 8 },
       plugins: { ...baseOpts().plugins,
-        legend: { position: 'bottom', labels: { color: '#8892b0', font: { size: 11 }, boxWidth: 12, padding: 10,
+        legend: { position: 'bottom', labels: { color: getChartThemeColors().legend, font: { size: 11 }, boxWidth: 12, padding: 10,
           generateLabels: chart => chart.data.labels.map((lbl, i) => ({
             text: lbl.length > 24 ? lbl.slice(0, 23) + '…' : lbl,
-            fillStyle: chart.data.datasets[0].backgroundColor[i], fontColor: '#8892b0', hidden: false, index: i })) } },
+            fillStyle: chart.data.datasets[0].backgroundColor[i], fontColor: getChartThemeColors().legend, hidden: false, index: i })) } },
         tooltip: { callbacks: { label: c => ` ${c.label}: ${fmt(c.raw)}` } } } }
   });
 }
@@ -586,14 +588,48 @@ function renderCategoryBar() {
   });
 }
 
-function baseOpts() {
+function getChartThemeColors() {
+  const s = getComputedStyle(document.documentElement);
+  const g = k => s.getPropertyValue(k).trim();
   return {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false }, tooltip: { backgroundColor: '#22263a', titleColor: '#e8eaf6', bodyColor: '#8892b0', borderColor: '#2e3250', borderWidth: 1 } }
+    grid:          g('--chart-grid')           || 'rgba(0,0,0,0.07)',
+    border:        g('--chart-border')         || 'rgba(0,0,0,0.09)',
+    tick:          g('--chart-tick')           || '#7a7974',
+    tooltipBg:     g('--chart-tooltip-bg')     || '#f9f8f5',
+    tooltipTitle:  g('--chart-tooltip-title')  || '#28251d',
+    tooltipBody:   g('--chart-tooltip-body')   || '#7a7974',
+    tooltipBorder: g('--chart-tooltip-border') || '#dcd9d5',
+    legend:        g('--chart-legend')         || '#7a7974',
   };
 }
-function axisStyle() { return { grid: { color: '#2e3250' }, border: { color: '#2e3250' } }; }
-function tickStyle() { return { color: '#8892b0', font: { size: 11 } }; }
+
+function baseOpts() {
+  const c = getChartThemeColors();
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: c.tooltipBg,
+        titleColor: c.tooltipTitle,
+        bodyColor: c.tooltipBody,
+        borderColor: c.tooltipBorder,
+        borderWidth: 1
+      }
+    }
+  };
+}
+
+function axisStyle() {
+  const c = getChartThemeColors();
+  return { grid: { color: c.grid }, border: { color: c.border } };
+}
+
+function tickStyle() {
+  const c = getChartThemeColors();
+  return { color: c.tick, font: { size: 11 } };
+}
 
 // ─── TABLE ────────────────────────────────────────────────────────────────────
 function renderTable() {
