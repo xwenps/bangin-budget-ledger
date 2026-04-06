@@ -330,6 +330,66 @@ select:focus, button.ctrl-btn:focus { border-color: var(--accent); }
 button.ctrl-btn:hover { border-color: var(--accent); background: var(--surface2); }
 #signout-btn { color: var(--muted); font-size: 0.82rem; }
 
+
+/* ── Filter Bar (below app header) ──────────────────────────────────────────── */
+#app > header {
+  margin-bottom: 0;
+  padding-bottom: 16px;
+  border-bottom: none;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 0 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Uniform 36px height across all header controls ──────────────────────────── */
+.multi-select-trigger,
+button.ctrl-btn,
+a.ctrl-btn,
+.theme-toggle {
+  height: 36px;
+  box-sizing: border-box;
+}
+
+button.ctrl-btn,
+a.ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-decoration: none;
+  padding: 0 14px;
+}
+
+/* ── <a> styled as ctrl-btn (e.g. #process-link) ─────────────────────────────── */
+a.ctrl-btn {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition), background var(--transition);
+}
+a.ctrl-btn:hover {
+  border-color: var(--accent);
+  background: var(--surface2);
+}
+
+/* ── Icon-only buttons (refresh, process link) ───────────────────────────────── */
+#refresh-btn,
+#process-link {
+  padding: 0 10px;
+  min-width: 36px;
+}
 /* ── Header Nav links ────────────────────────────────────────────────────────── */
 .header-nav { display: flex; align-items: center; gap: 4px; }
 .nav-link {
@@ -574,7 +634,7 @@ tr:hover td { background: var(--surface2); }
   border-radius: var(--radius-md);
   font-size: 0.85rem; font-family: inherit;
   cursor: pointer; user-select: none; white-space: nowrap;
-  min-width: 140px; position: relative; display: inline-block;
+  min-width: 140px; position: relative; display: inline-flex; align-items: center;
   transition: border-color var(--transition);
 }
 .multi-select-trigger::after {
