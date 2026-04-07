@@ -120,6 +120,7 @@ let categoryMap = {};
 let subcategoryMap = {}; 
 let activeDrillCategory = null;
 let selectedTags = new Set();
+let tagFilterMode = 'AND'; // 'AND' | 'OR'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const PALETTE = [
@@ -435,9 +436,13 @@ function applyFiltersAndRender() {
     if (excluded.month.size > 0 && excluded.month.has(String(r.monthNum))) return false;
     if (excluded.owner.size > 0 && excluded.owner.has(r.accountOwner))     return false;
     if (excluded.cat.size   > 0 && excluded.cat.has(r.category))           return false;
-    // Tags: AND inclusion — row must contain every selected tag
+
     if (selectedTags.size > 0) {
-      if (![...selectedTags].every(t => (r.tags || []).includes(t))) return false;
+      if (tagFilterMode === 'AND') {
+        if (![...selectedTags].every(t => (r.tags || []).includes(t))) return false;
+      } else {
+        if (![...selectedTags].some(t => (r.tags || []).includes(t))) return false;
+      }
     }
     return true;
   });
@@ -1074,6 +1079,18 @@ function initAllMultiSelects() {
     });
   });
 
+  document.querySelectorAll('.ms-tag-mode-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      tagFilterMode = btn.dataset.mode;
+      document.querySelectorAll('.ms-tag-mode-btn').forEach(b =>
+        b.classList.toggle('active', b === btn)
+      );
+      updateMSTrigger('tag');
+      applyFiltersAndRender();
+    });
+  });
+
   document.addEventListener('click', () => closeAllDropdowns());
 }
 
@@ -1134,7 +1151,7 @@ function updateMSTrigger(key) {
     if (selectedTags.size === 0) {
       trigger.textContent = cfg.label;
     } else {
-      trigger.innerHTML = `${cfg.singular}s <span class="ms-badge">${selectedTags.size}</span>`;
+      trigger.innerHTML = `${cfg.singular}s <span class="ms-badge">${tagFilterMode} · ${selectedTags.size}</span>`;
     }
     return;
   }

@@ -185,12 +185,19 @@
       <div class="multi-select-wrapper" id="tag-wrapper">
         <div class="multi-select-trigger" id="tag-trigger">All Tags</div>
         <div class="multi-select-dropdown" id="tag-dropdown">
-          <input class="ms-search" id="tag-search" type="text" placeholder="Search…">
+          <input type="text" class="ms-search" id="tag-search" placeholder="Search tags…">
           <div class="ms-actions">
-            <button class="ms-action-btn" data-ms="tag" data-action="all">Select all</button>
-            <button class="ms-action-btn" data-ms="tag" data-action="clear">Clear all</button>
+            <button class="ms-action-btn" data-ms="tag" data-action="all">All</button>
+            <button class="ms-action-btn" data-ms="tag" data-action="none">None</button>
           </div>
-          <div id="tag-options"></div>
+          <div class="ms-tag-mode">
+            <span class="ms-tag-mode-label">Match mode:</span>
+            <div class="ms-tag-mode-toggle">
+              <button class="ms-tag-mode-btn active" data-mode="AND">AND</button>
+              <button class="ms-tag-mode-btn" data-mode="OR">OR</button>
+            </div>
+          </div>
+          <div class="ms-options" id="tag-options"></div>
         </div>
       </div>
   </div>
