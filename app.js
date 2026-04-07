@@ -156,30 +156,9 @@ window.addEventListener('load', async () => {
   document.getElementById('signin-btn').addEventListener('click', startSignIn);
   // Demo Mode button wiring
   const demoBtn = document.getElementById('demo-mode-btn');
-  const demoOverlay = document.getElementById('demo-overlay');
-  const demoClose = document.getElementById('demo-close');
-  const demoCancel = document.getElementById('demo-cancel');
-  const demoLoad = document.getElementById('demo-load-btn');
-  const demoSheetInput = document.getElementById('demo-sheet-id');
-  const demoGidsInput = document.getElementById('demo-gids');
-  // if (demoBtn) demoBtn.addEventListener('click', (e) => {
-  //   e.stopPropagation();
-  //   // Prefill public demo values
-  //   if (demoSheetInput) demoSheetInput.value = '1Ub6uzHLCIEj7f4zMVY96VhFcR3gRoz9xt9j8hp86oLk';
-  //   if (demoGidsInput) demoGidsInput.value = '0,1978512565';
-  //   if (demoOverlay) demoOverlay.style.display = 'block';
-  //   if (demoSheetInput) demoSheetInput.focus();
-  // });
-  if (demoClose) demoClose.addEventListener('click', () => demoOverlay.style.display = 'none');
-  if (demoCancel) demoCancel.addEventListener('click', () => demoOverlay.style.display = 'none');
-  if (demoOverlay) demoOverlay.addEventListener('click', (e) => { if (e.target === demoOverlay) demoOverlay.style.display = 'none'; });
-  if (demoLoad) demoBtn.addEventListener('click', async () => {
-    // const sid = (demoSheetInput && demoSheetInput.value || '').trim();
-    // const gids = (demoGidsInput && demoGidsInput.value || '').split(',').map(s => s.trim()).filter(Boolean);
-    // if (!sid || gids.length === 0) { alert('Please enter sheet ID and at least one gid'); return; }
+  if (demoBtn) demoBtn.addEventListener('click', async () => {
     const sid = '1Ub6uzHLCIEj7f4zMVY96VhFcR3gRoz9xt9j8hp86oLk';
     const gids = ['0', '1978512565'];
-    demoOverlay.style.display = 'none';
     await loadPublicData(sid, gids);
   });
   const settingsToggle = document.getElementById('manual-settings-toggle');
