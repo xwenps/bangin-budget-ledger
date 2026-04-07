@@ -115,7 +115,14 @@ let sortCol = 'date';
 let sortDir = 'desc';
 let currentPage = 1;
 const PAGE_SIZE = 25;
+const MAX_DAILY_CT = 200;
 let charts = {};
+let categoryMap = {};
+let subcategoryMap = {}; 
+let activeDrillCategory = null;
+let selectedTags = new Set();
+let tagFilterMode = 'AND'; // 'AND' | 'OR'
+let defaultExcludedCatIds = new Set();
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const PALETTE = [
@@ -155,21 +162,23 @@ window.addEventListener('load', async () => {
   const demoLoad = document.getElementById('demo-load-btn');
   const demoSheetInput = document.getElementById('demo-sheet-id');
   const demoGidsInput = document.getElementById('demo-gids');
-  if (demoBtn) demoBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    // Prefill public demo values
-    if (demoSheetInput) demoSheetInput.value = '1Ub6uzHLCIEj7f4zMVY96VhFcR3gRoz9xt9j8hp86oLk';
-    if (demoGidsInput) demoGidsInput.value = '0,1978512565';
-    if (demoOverlay) demoOverlay.style.display = 'flex';
-    if (demoSheetInput) demoSheetInput.focus();
-  });
+  // if (demoBtn) demoBtn.addEventListener('click', (e) => {
+  //   e.stopPropagation();
+  //   // Prefill public demo values
+  //   if (demoSheetInput) demoSheetInput.value = '1Ub6uzHLCIEj7f4zMVY96VhFcR3gRoz9xt9j8hp86oLk';
+  //   if (demoGidsInput) demoGidsInput.value = '0,1978512565';
+  //   if (demoOverlay) demoOverlay.style.display = 'block';
+  //   if (demoSheetInput) demoSheetInput.focus();
+  // });
   if (demoClose) demoClose.addEventListener('click', () => demoOverlay.style.display = 'none');
   if (demoCancel) demoCancel.addEventListener('click', () => demoOverlay.style.display = 'none');
   if (demoOverlay) demoOverlay.addEventListener('click', (e) => { if (e.target === demoOverlay) demoOverlay.style.display = 'none'; });
-  if (demoLoad) demoLoad.addEventListener('click', async () => {
-    const sid = (demoSheetInput && demoSheetInput.value || '').trim();
-    const gids = (demoGidsInput && demoGidsInput.value || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (!sid || gids.length === 0) { alert('Please enter sheet ID and at least one gid'); return; }
+  if (demoLoad) demoBtn.addEventListener('click', async () => {
+    // const sid = (demoSheetInput && demoSheetInput.value || '').trim();
+    // const gids = (demoGidsInput && demoGidsInput.value || '').split(',').map(s => s.trim()).filter(Boolean);
+    // if (!sid || gids.length === 0) { alert('Please enter sheet ID and at least one gid'); return; }
+    const sid = '1Ub6uzHLCIEj7f4zMVY96VhFcR3gRoz9xt9j8hp86oLk';
+    const gids = ['0', '1978512565'];
     demoOverlay.style.display = 'none';
     await loadPublicData(sid, gids);
   });
@@ -239,10 +248,19 @@ function wireAppButtons() {
   document.getElementById('freq-toggle').addEventListener('click', e => {
     const btn = e.target.closest('.freq-btn');
     if (!btn) return;
+    if (btn.dataset.freq === 'daily' && filteredData.length > MAX_DAILY_CT) {
+      showToast(`Too many transactions for daily view (${filteredData.length} > ${MAX_DAILY_CT})`);
+      return;
+    }
     chartFreq = btn.dataset.freq;
     document.querySelectorAll('.freq-btn').forEach(b => b.classList.toggle('active', b === btn));
     updateChartTitles();
     renderCharts();
+  });
+  document.getElementById('drill-close').addEventListener('click', () => {
+    document.getElementById('subcategory-drill-card').style.display = 'none';
+    destroyChart('subDrill');
+    activeDrillCategory = null;
   });
   document.getElementById('refresh-btn').addEventListener('click', () => {
     const sheetId = sessionStorage.getItem('gapi_sheet_id');
@@ -276,9 +294,62 @@ async function discoverSheetTabs(sheetId) {
   return json.sheets.map(s => s.properties.title);
 }
 
+async function loadCategoryMap(sheetId) {
+  try {
+    const range = encodeURIComponent('CONFIG.categories!A:Z');
+    const url   = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`;
+    const res   = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) return;
+    const rows  = (await res.json()).values;
+    if (!rows || rows.length < 2) return;
+    const headers = rows[0].map(h => h.trim().toLowerCase());
+    const col = name => headers.indexOf(name);
+    if (col('category_id') === -1) return;
+    rows.slice(1).forEach(r => {
+      const catId   = (r[col('category_id')]      || '').trim();
+      const catName = (r[col('category_name')]    || '').trim();
+      const subId   = (r[col('subcategory_id')]   || '').trim();
+      const subName = (r[col('subcategory_name')] || '').trim();
+      if (catId && catName) categoryMap[catId] = catName;
+      if (catId && subId && subName) subcategoryMap[`${catId}::${subId}`] = subName;
+    });
+    console.log('[category] map loaded:', Object.keys(categoryMap).length, 'categories');
+  } catch(e) {
+    console.warn('Could not load CONFIG.categories:', e);
+  }
+}
+
+async function loadDefaultExcludes(sheetId) {
+  try {
+    const range = encodeURIComponent('CONFIG.default.exclude!A:Z');
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) return; // tab doesn't exist or no access — silently skip
+    const rows = (await res.json()).values;
+    if (!rows || rows.length < 2) return;
+    const headers = rows[0].map(h => h.trim().toLowerCase());
+    const catIdCol = headers.indexOf('category_id');
+    if (catIdCol === -1) return;
+    rows.slice(1).forEach(r => {
+      const id = (r[catIdCol] || '').trim();
+      if (id) defaultExcludedCatIds.add(id);
+    });
+    console.log('[default excludes] loaded:', defaultExcludedCatIds.size, 'category IDs');
+  } catch(e) {
+    console.warn('Could not load CONFIG.default.exclude:', e);
+  }
+}
+
 async function loadAllData(sheetId) {
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('loading').style.display = 'block';
+
+  categoryMap    = {};
+  subcategoryMap = {};
+  defaultExcludedCatIds = new Set();
+
+  await loadCategoryMap(sheetId);
+  await loadDefaultExcludes(sheetId);
 
   // Get Data from either Config File or only tabs named as 4-digit years only (e.g. "2020", "2021", etc.)
   const allTabs = await discoverSheetTabs(sheetId);
@@ -288,7 +359,7 @@ async function loadAllData(sheetId) {
   const results = await Promise.all(
     sheetTabs.map(async tab => {
       try {
-        const range = encodeURIComponent(`${tab}!A:H`);
+        const range = encodeURIComponent(`${tab}!A:Z`);
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`;
         const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
         console.log(`Tab "${tab}" → HTTP ${res.status}`);
@@ -301,34 +372,50 @@ async function loadAllData(sheetId) {
         const headers = rows[0].map(h => h.trim().toLowerCase());
         console.log(`Tab "${tab}" → headers:`, headers);
         const idx = {
-          date:         headers.indexOf('date'),
-          description:  headers.indexOf('description'),
-          amount:       headers.indexOf('amount'),
-          account:      headers.indexOf('account'),
-          category:     headers.indexOf('category'),
-          month:        headers.indexOf('month'),
-          accountOwner: headers.indexOf('account owner'),
-          notes:        headers.indexOf('notes'),
+          date:          headers.indexOf('date'),
+          description:   headers.indexOf('description'),
+          amount:        headers.indexOf('amount'),
+          account:       headers.indexOf('account'),
+          accountOwner:  headers.indexOf('account owner'),
+          notes:         headers.indexOf('notes'),
+          categoryId:    headers.indexOf('category_id'),
+          subcategoryId: headers.indexOf('subcategory_id'),
+          tags:          headers.indexOf('tags'),
         };
 
         return rows.slice(1).flatMap(r => {
           const amount = parseFloat((r[idx.amount] || '0').replace(/[$,]/g, ''));
           if (!r[idx.date] || isNaN(amount) || amount === 0) return [];
-          const parts = r[idx.date].split('/');
+          const parts   = r[idx.date].split('/');
           const dateObj = parts.length === 3
             ? new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]))
             : null;
+
+          const rawCatId = idx.categoryId    >= 0 ? (r[idx.categoryId]    || '').trim() : '';
+          const rawSubId = idx.subcategoryId >= 0 ? (r[idx.subcategoryId] || '').trim() : '';
+          const rawTags  = idx.tags          >= 0 ? (r[idx.tags]          || '').trim() : '';
+
+          const category  = (rawCatId && categoryMap[rawCatId])
+            ? categoryMap[rawCatId] : (rawCatId || 'Uncategorized');
+          const subcategory = (rawCatId && rawSubId && subcategoryMap[`${rawCatId}::${rawSubId}`])
+            ? subcategoryMap[`${rawCatId}::${rawSubId}`] : (rawSubId || '');
+          const tags = rawTags ? rawTags.split(',').map(t => t.trim()).filter(Boolean) : [];
+
           return [{
-            date:         r[idx.date] || '',
+            date:         r[idx.date]        || '',
             dateObj,
-            year:         dateObj ? dateObj.getFullYear() : null,
+            year:         dateObj ? dateObj.getFullYear()  : null,
             monthNum:     dateObj ? dateObj.getMonth() + 1 : null,
-            description:  r[idx.description] || '',
+            description:  idx.description  >= 0 ? (r[idx.description]  || '') : '',
             amount,
-            account:      idx.account      >= 0 ? (r[idx.account]      || '')               : '',
-            category:     idx.category     >= 0 ? (r[idx.category]     || 'Uncategorized')  : 'Uncategorized',
-            accountOwner: idx.accountOwner >= 0 ? (r[idx.accountOwner] || '')               : '',
-            notes:        idx.notes        >= 0 ? (r[idx.notes]        || '')               : '',
+            account:      idx.account      >= 0 ? (r[idx.account]      || '') : '',
+            accountOwner: idx.accountOwner >= 0 ? (r[idx.accountOwner] || '') : '',
+            notes:        idx.notes        >= 0 ? (r[idx.notes]        || '') : '',
+            categoryId:   rawCatId,
+            category,         // display name — used everywhere existing code references r.category
+            subcategoryId: rawSubId,
+            subcategory,
+            tags,
           }];
         });
 
@@ -367,26 +454,46 @@ function populateFilters() {
   const cats = [...new Set(allData.map(r => r.category))].sort();
   populateMSOptions('cat', cats.map(c => ({ value: c, label: c })));
 
+  const allTags = [...new Set(allData.flatMap(r => r.tags))].sort();
+  populateMSOptions('tag', allTags.map(t => ({ value: t, label: t })));
+
   buildCategoryTypeDefaults(cats);
   renderCategoryTypeModal(cats);
 }
 
-function getFilters() { return {}; }
-
 function applyFiltersAndRender() {
+  const savedScrollY = window.scrollY;
   filteredData = allData.filter(r => {
     if (excluded.year.size  > 0 && excluded.year.has(String(r.year)))      return false;
     if (excluded.month.size > 0 && excluded.month.has(String(r.monthNum))) return false;
     if (excluded.owner.size > 0 && excluded.owner.has(r.accountOwner))     return false;
     if (excluded.cat.size   > 0 && excluded.cat.has(r.category))           return false;
-    
+
+    if (selectedTags.size > 0) {
+      if (tagFilterMode === 'AND') {
+        if (![...selectedTags].every(t => (r.tags || []).includes(t))) return false;
+      } else {
+        if (![...selectedTags].some(t => (r.tags || []).includes(t))) return false;
+      }
+    }
     return true;
   });
+  if (chartFreq === 'daily' && filteredData.length > MAX_DAILY_CT) {
+    chartFreq = 'monthly';
+    document.querySelectorAll('.freq-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.freq === 'monthly')
+    );
+    showToast(`Too many transactions for daily view — switched to Monthly`);
+  }
   currentPage = 1;
   renderKPIs();
   updateChartTitles();
   renderCharts();
   renderTable();
+  if (activeDrillCategory) renderSubcategoryDrill(activeDrillCategory, false);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.scrollTo({ top: savedScrollY, behavior: 'instant' });
+  }));
 }
 
 // ─── DEMO / PUBLIC SHEETS LOADING ───────────────────────────────────────────
@@ -421,6 +528,9 @@ function parseCSV(text) {
 async function loadPublicData(sheetId, gids) {
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('loading').style.display = 'block';
+  categoryMap    = {};
+  subcategoryMap = {};
+  await loadCategoryMap(sheetId);
   const combined = [];
   for (const gid of gids) {
     try {
@@ -432,14 +542,15 @@ async function loadPublicData(sheetId, gids) {
       if (!rows || rows.length < 2) continue;
       const headers = rows[0].map(h => h.trim().toLowerCase());
       const idx = {
-        date:         headers.indexOf('date'),
-        description:  headers.indexOf('description'),
-        amount:       headers.indexOf('amount'),
-        account:      headers.indexOf('account'),
-        category:     headers.indexOf('category'),
-        month:        headers.indexOf('month'),
-        accountOwner: headers.indexOf('account owner'),
-        notes:        headers.indexOf('notes'),
+        date:          headers.indexOf('date'),
+        description:   headers.indexOf('description'),
+        amount:        headers.indexOf('amount'),
+        account:       headers.indexOf('account'),
+        accountOwner:  headers.indexOf('account owner'),
+        notes:         headers.indexOf('notes'),
+        categoryId:    headers.indexOf('category_id'),
+        subcategoryId: headers.indexOf('subcategory_id'),
+        tags:          headers.indexOf('tags'),
       };
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i];
@@ -451,17 +562,32 @@ async function loadPublicData(sheetId, gids) {
           ? new Date(`${parts[2]}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}`)
           : new Date(r[idx.date]);
         const year = dateObj && !isNaN(dateObj) ? dateObj.getFullYear() : null;
+
+        const rawCatId = idx.categoryId    >= 0 ? (r[idx.categoryId]    || '').trim() : '';
+        const rawSubId = idx.subcategoryId >= 0 ? (r[idx.subcategoryId] || '').trim() : '';
+        const rawTags  = idx.tags          >= 0 ? (r[idx.tags]          || '').trim() : '';
+        // No categoryMap in demo mode — raw id is used as display name directly
+        const category    = (rawCatId && categoryMap[rawCatId])
+          ? categoryMap[rawCatId] : (rawCatId || 'Uncategorized');
+        const subcategory = (rawCatId && rawSubId && subcategoryMap[`${rawCatId}::${rawSubId}`])
+          ? subcategoryMap[`${rawCatId}::${rawSubId}`] : (rawSubId || '');
+        const tags = rawTags ? rawTags.split(',').map(t => t.trim()).filter(Boolean) : [];
+
         combined.push({
-          date:         r[idx.date] || '',
+          date:          r[idx.date] || '',
           dateObj,
           year,
-          monthNum:     dateObj && !isNaN(dateObj) ? dateObj.getMonth() + 1 : null,
-          description:  r[idx.description] || '',
+          monthNum:      dateObj && !isNaN(dateObj) ? dateObj.getMonth() + 1 : null,
+          description:   idx.description  >= 0 ? (r[idx.description]  || '') : '',
           amount,
-          account:      idx.account >= 0      ? (r[idx.account] || '')      : '',
-          category:     idx.category >= 0     ? (r[idx.category] || 'Uncategorized') : 'Uncategorized',
-          accountOwner: idx.accountOwner >= 0 ? (r[idx.accountOwner] || '') : '',
-          notes:        idx.notes >= 0        ? (r[idx.notes] || '')        : '',
+          account:       idx.account      >= 0 ? (r[idx.account]      || '') : '',
+          accountOwner:  idx.accountOwner >= 0 ? (r[idx.accountOwner] || '') : '',
+          notes:         idx.notes        >= 0 ? (r[idx.notes]        || '') : '',
+          categoryId:    rawCatId,
+          category,
+          subcategoryId: rawSubId,
+          subcategory,
+          tags,
         });
       }
     } catch (e) {
@@ -473,6 +599,7 @@ async function loadPublicData(sheetId, gids) {
   document.getElementById('app').style.display = 'block';
   populateFilters();
   applyFiltersAndRender();
+  wireAppButtons();
 }
 
 // ─── KPIs ─────────────────────────────────────────────────────────────────────
@@ -519,7 +646,11 @@ function renderKPIs() {
 let chartFreq = 'monthly';
 function getFreqKey(row) {
   if (!row.year || !row.monthNum) return null;
-  if (chartFreq === 'yearly')    return String(row.year);
+  if (chartFreq === 'daily') {
+    if (!row.dateObj) return null;
+    return `${row.year}-${String(row.monthNum).padStart(2,'0')}-${String(row.dateObj.getDate()).padStart(2,'0')}`;
+  }
+  if (chartFreq === 'yearly')   return String(row.year);
   if (chartFreq === 'quarterly') return `${row.year}-Q${Math.ceil(row.monthNum / 3)}`;
   return `${row.year}-${String(row.monthNum).padStart(2, '0')}`;
 }
@@ -527,14 +658,19 @@ function getFreqKey(row) {
 function freqKeyLabel(key) {
   if (chartFreq === 'yearly')    return key;
   if (chartFreq === 'quarterly') return key.replace('-', ' ');  // "2024 Q2"
+  if (chartFreq === 'daily') {
+    const [y, m, d] = key.split('-');
+    return `${MONTHS[parseInt(m) - 1]} ${parseInt(d)} '${y.slice(2)}`; // e.g. "Jan 3 '24"
+  }
   const [y, m] = key.split('-');
   return `${MONTHS[parseInt(m) - 1]} ${y.slice(2)}`;           // "Jan 24"
 }
 
 const CHART_TITLES = {
-  monthly:   { trend: 'Monthly Net Trend',      exptrend: 'Monthly Expense Trend',   inctrend: 'Monthly Income Trend',   catmonth: 'Month-over-Month Expenses' },
-  quarterly: { trend: 'Quarterly Net Trend',    exptrend: 'Quarterly Expense Trend', inctrend: 'Quarterly Income Trend', catmonth: 'Quarter-over-Quarter Expenses' },
-  yearly:    { trend: 'Yearly Net Trend',        exptrend: 'Yearly Expense Trend',    inctrend: 'Yearly Income Trend',    catmonth: 'Year-over-Year Expenses' },
+  daily:     { trend: 'Daily Net Trend',       exptrend: 'Daily Expense Trend',       inctrend: 'Daily Income Trend',       catmonth: 'Day-over-Day Expenses'         },
+  monthly:   { trend: 'Monthly Net Trend',     exptrend: 'Monthly Expense Trend',     inctrend: 'Monthly Income Trend',     catmonth: 'Month-over-Month Expenses'     },
+  quarterly: { trend: 'Quarterly Net Trend',   exptrend: 'Quarterly Expense Trend',   inctrend: 'Quarterly Income Trend',   catmonth: 'Quarter-over-Quarter Expenses' },
+  yearly:    { trend: 'Yearly Net Trend',      exptrend: 'Yearly Expense Trend',      inctrend: 'Yearly Income Trend',      catmonth: 'Year-over-Year Expenses'       },
 };
 
 function updateChartTitles() {
@@ -564,10 +700,89 @@ function renderNetTrendChart() {
     const exp = sumArr(filteredData.filter(r => getFreqKey(r) === k && categoryTypes[r.category] === 'Expense'));
     return inc + exp;
   });
+
+  const netFillPlugin = {
+    id: 'netFill',
+    beforeDatasetsDraw(chart) {
+      const { ctx, chartArea, scales: { y } } = chart;
+      if (!chartArea || !y) return;
+      const pts = chart.getDatasetMeta(0).data;
+      if (!pts.length) return;
+
+      const zeroY = Math.max(chartArea.top, Math.min(chartArea.bottom, y.getPixelForValue(0)));
+
+      // Trace the fill shape: follow points then close back along the zero baseline
+      const tracePath = () => {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          const prev = pts[i - 1];
+          const curr = pts[i];
+          if (prev.cp2x !== undefined && curr.cp1x !== undefined) {
+            // Follow the same bezier curve Chart.js drew
+            ctx.bezierCurveTo(prev.cp2x, prev.cp2y, curr.cp1x, curr.cp1y, curr.x, curr.y);
+          } else {
+            ctx.lineTo(curr.x, curr.y);
+          }
+        }
+        // Close back along the zero baseline
+        ctx.lineTo(pts[pts.length - 1].x, zeroY);
+        ctx.lineTo(pts[0].x, zeroY);
+        ctx.closePath();
+      };
+
+      ctx.save();
+
+      // Green fill — clip to region ABOVE the zero line
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, zeroY - chartArea.top);
+      ctx.clip();
+      tracePath();
+      ctx.fillStyle = 'rgba(76,175,145,0.22)';
+      ctx.fill();
+      ctx.restore();
+
+      // Red fill — clip to region BELOW the zero line
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(chartArea.left, zeroY, chartArea.right - chartArea.left, chartArea.bottom - zeroY);
+      ctx.clip();
+      tracePath();
+      ctx.fillStyle = 'rgba(224,92,92,0.22)';
+      ctx.fill();
+      ctx.restore();
+
+      ctx.restore();
+    }
+  };
+
+  const lineColor = getChartThemeColors().tick; // muted gray — theme-aware, works light + dark
+
   charts['trend'] = new Chart(document.getElementById('chart-trend'), {
     type: 'line',
-    data: { labels, datasets: [{ label: 'Net', data: netData, borderColor: PALETTE[2], backgroundColor: PALETTE[2] + '22', fill: true, tension: 0.4, pointRadius: 4, pointBackgroundColor: PALETTE[2] }] },
-    options: { ...baseOpts(), scales: { x: { ...axisStyle(), ticks: tickStyle() }, y: { ...axisStyle(), ticks: { ...tickStyle(), callback: v => v.toLocaleString() } } } }
+    data: {
+      labels,
+      datasets: [{
+        label: 'Net',
+        data: netData,
+        fill: false,
+        borderColor: lineColor,
+        backgroundColor: 'transparent',
+        tension: 0.4,
+        pointRadius: 4,
+        pointBackgroundColor: ctx => (ctx.parsed?.y ?? 0) >= 0 ? 'rgba(76,175,145,0.9)' : 'rgba(224,92,92,0.9)',
+        pointBorderColor:     ctx => (ctx.parsed?.y ?? 0) >= 0 ? 'rgba(76,175,145,1.0)' : 'rgba(224,92,92,1.0)',
+      }]
+    },
+    options: {
+      ...baseOpts(),
+      scales: {
+        x: { ...axisStyle(), ticks: tickStyle() },
+        y: { ...axisStyle(), ticks: { ...tickStyle(), callback: v => v.toLocaleString() } }
+      }
+    },
+    plugins: [netFillPlugin]
   });
 }
 
@@ -626,6 +841,12 @@ function renderCategoryDonut() {
     type: 'doughnut',
     data: { labels: sorted.map(e => e[0]), datasets: [{ data: sorted.map(e => e[1]), backgroundColor: palette, borderWidth: 0 }] },
     options: { ...baseOpts(), layout: { padding: 8 },
+      onClick: (event, elements) => {
+        if (elements.length > 0) renderSubcategoryDrill(sorted[elements[0].index][0]);
+      },
+      onHover: (event, elements) => {
+        event.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
       plugins: { ...baseOpts().plugins,
         legend: { position: 'bottom', labels: { color: getChartThemeColors().legend, font: { size: 11 }, boxWidth: 12, padding: 10,
           generateLabels: chart => chart.data.labels.map((lbl, i) => ({
@@ -643,8 +864,45 @@ function renderCategoryBar() {
   charts['catbar'] = new Chart(document.getElementById('chart-category-bar'), {
     type: 'bar',
     data: { labels: sorted.map(e => e[0]), datasets: [{ data: sorted.map(e => e[1]), backgroundColor: PALETTE, borderRadius: 6 }] },
-    options: { ...baseOpts(), plugins: { ...baseOpts().plugins, legend: { display: false } },
+    options: { ...baseOpts(), 
+      onClick: (event, elements) => {
+        if (elements.length > 0) renderSubcategoryDrill(sorted[elements[0].index][0]);
+      },
+      onHover: (event, elements) => {
+        event.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
+      plugins: { ...baseOpts().plugins, legend: { display: false } },
       scales: { x: { ...axisStyle(), ticks: { ...tickStyle(), maxRotation: 35 } }, y: { ...axisStyle(), ticks: { ...tickStyle(), callback: v => '$' + v.toLocaleString() } } } }
+  });
+}
+
+function renderSubcategoryDrill(categoryName, scrollToCard = true) {
+  activeDrillCategory = categoryName;
+  const card = document.getElementById('subcategory-drill-card');
+  document.getElementById('drill-title').textContent = `${categoryName} — Subcategory Breakdown`;
+  card.style.display = 'block';
+  if (scrollToCard) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  destroyChart('subDrill');
+  const rows    = filteredData.filter(r => r.category === categoryName);
+  const grouped = Object.entries(groupBy(rows, r => r.subcategory || '(no subcategory)'))
+    .map(([sub, recs]) => [sub, -sumArr(recs)])
+    .sort((a, b) => b[1] - a[1]);
+
+  charts['subDrill'] = new Chart(document.getElementById('chart-subcategory-drill'), {
+    type: 'bar',
+    data: {
+      labels: grouped.map(e => e[0]),
+      datasets: [{ data: grouped.map(e => e[1]), backgroundColor: PALETTE, borderRadius: 6 }]
+    },
+    options: {
+      ...baseOpts(),
+      plugins: { ...baseOpts().plugins, legend: { display: false } },
+      scales: {
+        x: { ...axisStyle(), ticks: { ...tickStyle(), maxRotation: 35 } },
+        y: { ...axisStyle(), ticks: { ...tickStyle(), callback: v => '$' + v.toLocaleString() } }
+      }
+    }
   });
 }
 
@@ -704,7 +962,7 @@ function renderTable() {
   
   const q = document.getElementById('search-input').value.toLowerCase();
   const tableData = q
-    ? filteredData.filter(r => [r.description, r.category, r.notes].some(s => s && s.toLowerCase().includes(q)))
+    ? filteredData.filter(r => [r.description, r.category, r.subcategory, r.notes, ...(r.tags || [])].some(s => s && s.toLowerCase().includes(q)))
     : filteredData
   
   let data = [...tableData].sort((a, b) => {
@@ -724,6 +982,8 @@ function renderTable() {
       <td>${esc(r.description)}</td>
       <td class="amount-cell ${r.amount >= 0 ? 'is-positive' : 'is-negative'}">${fmt(r.amount)}</td>
       <td><span class="category-badge">${esc(r.category)}</span></td>
+      <td style="color:var(--muted);font-size:0.82rem">${esc(r.subcategory)}</td>
+      <td>${(r.tags||[]).map(t => `<span class="tag-badge">${esc(t)}</span>`).join('')}</td>
       <td>${esc(r.account)}</td>
       <td>${esc(r.accountOwner)}</td>
       <td style="color:var(--muted);font-size:0.8rem">${esc(r.notes)}</td>
@@ -762,6 +1022,23 @@ function sumArr(arr) {
 }
 function esc(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function showToast(msg, durationMs = 2800) {
+  // Remove any existing toast first
+  const existing = document.getElementById('app-toast');
+  if (existing) existing.remove();
+
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.id = 'app-toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+
+  setTimeout(() => {
+    el.classList.add('toast-hiding');
+    el.addEventListener('transitionend', () => el.remove(), { once: true });
+  }, durationMs);
 }
 
 // ─── CATEGORY TYPE MAPPING ────────────────────────────────────────────────────
@@ -817,8 +1094,9 @@ const MS_CONFIG = {
   month: { label: 'All Months',     singular: 'Month'    },
   owner: { label: 'All Owners',     singular: 'Owner'    },
   cat:   { label: 'All Categories', singular: 'Category' },
+  tag:   { label: 'All Tags',       singular: 'Tag'      },
 };
-const MS_KEYS = ['year','month','owner','cat'];
+const MS_KEYS = ['year', 'month', 'owner', 'cat', 'tag'];
 
 function initAllMultiSelects() {
   MS_KEYS.forEach(key => {
@@ -839,19 +1117,33 @@ function initAllMultiSelects() {
   });
 
   document.querySelectorAll('.ms-action-btn[data-ms]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', e => {
       e.stopPropagation();
       const key = btn.dataset.ms, action = btn.dataset.action;
-      const cbs = document.querySelectorAll('#' + key + '-options .ms-option input');
-      if (action === 'all') {
-        excluded[key].clear();
-        cbs.forEach(cb => cb.checked = true);
+      const cbs = document.querySelectorAll(`#${key}-options .ms-option input`);
+      if (key === 'tag') {
+        selectedTags.clear();
+        if (action === 'all') cbs.forEach(cb => { cb.checked = true;  selectedTags.add(cb.value); });
+        else                  cbs.forEach(cb => { cb.checked = false; });
       } else {
-        cbs.forEach(cb => { cb.checked = false; excluded[key].add(cb.value); });
+        if (action === 'all') { excluded[key].clear(); cbs.forEach(cb => cb.checked = true); }
+        else { cbs.forEach(cb => { cb.checked = false; excluded[key].add(cb.value); }); }
       }
       updateMSTrigger(key);
       applyFiltersAndRender();
       closeAllDropdowns();
+    });
+  });
+
+  document.querySelectorAll('.ms-tag-mode-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      tagFilterMode = btn.dataset.mode;
+      document.querySelectorAll('.ms-tag-mode-btn').forEach(b =>
+        b.classList.toggle('active', b === btn)
+      );
+      updateMSTrigger('tag');
+      applyFiltersAndRender();
     });
   });
 
@@ -875,22 +1167,41 @@ function filterMSSearch(key) {
 }
 
 function populateMSOptions(key, items) {
-  const container = document.getElementById(key + '-options');
+  const container = document.getElementById(`${key}-options`);
   container.innerHTML = '';
-  excluded[key].clear();
+  if (key === 'tag') selectedTags.clear();
+  else excluded[key]?.clear();
+
   items.forEach(({ value, label }) => {
     const div = document.createElement('div');
     div.className = 'ms-option';
     div.dataset.label = label;
-    const safeId  = key + '_' + value.replace(/[^a-zA-Z0-9]/g, '_');
+    const safeId  = `${key}_${value.replace(/[^a-zA-Z0-9]/g, '_')}`;
     const safeVal = value.replace(/"/g, '&quot;');
     const safeLbl = label.replace(/</g, '&lt;');
-    div.innerHTML = '<input type="checkbox" id="' + safeId + '" value="' + safeVal + '" checked>' +
-                    '<label for="' + safeId + '">' + safeLbl + '</label>';
-    div.addEventListener('click', (e) => e.stopPropagation());
-    div.querySelector('input').addEventListener('change', (e) => {
-      if (e.target.checked) excluded[key].delete(value);
-      else excluded[key].add(value);
+
+    // Handle default exclusion categories from config
+    let startChecked = true;
+    if (key === 'tag') {
+      startChecked = false; //
+    } else if (key === 'cat' && defaultExcludedCatIds.size > 0) {
+      const catId = Object.entries(categoryMap).find(([, name]) => name === value)?.[0];
+      if (catId && defaultExcludedCatIds.has(catId)) {
+        startChecked = false;
+        excluded.cat.add(value);
+      }
+    }
+
+    div.innerHTML = `<input type="checkbox" id="${safeId}" value="${safeVal}" ${startChecked ? 'checked' : ''}> <label for="${safeId}">${safeLbl}</label>`;
+    div.addEventListener('click', e => e.stopPropagation());
+    div.querySelector('input').addEventListener('change', e => {
+      if (key === 'tag') {
+        if (e.target.checked) selectedTags.add(value);
+        else selectedTags.delete(value);
+      } else {
+        if (e.target.checked) excluded[key].delete(value);
+        else excluded[key].add(value);
+      }
       updateMSTrigger(key);
       applyFiltersAndRender();
     });
@@ -900,15 +1211,21 @@ function populateMSOptions(key, items) {
 }
 
 function updateMSTrigger(key) {
-  const trigger = document.getElementById(key + '-trigger');
-  const total   = document.querySelectorAll('#' + key + '-options .ms-option input').length;
-  const checked = document.querySelectorAll('#' + key + '-options .ms-option input:checked').length;
+  const trigger = document.getElementById(`${key}-trigger`);
   const cfg = MS_CONFIG[key];
-  if (total === 0 || checked === total) {
-    trigger.textContent = cfg.label;
-  } else if (checked === 0) {
-    trigger.textContent = 'No ' + cfg.singular + 's';
-  } else {
-    trigger.innerHTML = cfg.singular + 's <span class="ms-badge">' + checked + ' / ' + total + '</span>';
+
+  if (key === 'tag') {
+    if (selectedTags.size === 0) {
+      trigger.textContent = cfg.label;
+    } else {
+      trigger.innerHTML = `${cfg.singular}s <span class="ms-badge">${tagFilterMode} · ${selectedTags.size}</span>`;
+    }
+    return;
   }
+
+  const total   = document.querySelectorAll(`#${key}-options .ms-option input`).length;
+  const checked = document.querySelectorAll(`#${key}-options .ms-option input:checked`).length;
+  if (total === 0 || checked === total) trigger.textContent = cfg.label;
+  else if (checked === 0) trigger.textContent = `No ${cfg.singular}s`;
+  else trigger.innerHTML = `${cfg.singular}s <span class="ms-badge">${checked}/${total}</span>`;
 }
