@@ -647,10 +647,89 @@ function renderNetTrendChart() {
     const exp = sumArr(filteredData.filter(r => getFreqKey(r) === k && categoryTypes[r.category] === 'Expense'));
     return inc + exp;
   });
+
+  const netFillPlugin = {
+    id: 'netFill',
+    beforeDatasetsDraw(chart) {
+      const { ctx, chartArea, scales: { y } } = chart;
+      if (!chartArea || !y) return;
+      const pts = chart.getDatasetMeta(0).data;
+      if (!pts.length) return;
+
+      const zeroY = Math.max(chartArea.top, Math.min(chartArea.bottom, y.getPixelForValue(0)));
+
+      // Trace the fill shape: follow points then close back along the zero baseline
+      const tracePath = () => {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          const prev = pts[i - 1];
+          const curr = pts[i];
+          if (prev.cp2x !== undefined && curr.cp1x !== undefined) {
+            // Follow the same bezier curve Chart.js drew
+            ctx.bezierCurveTo(prev.cp2x, prev.cp2y, curr.cp1x, curr.cp1y, curr.x, curr.y);
+          } else {
+            ctx.lineTo(curr.x, curr.y);
+          }
+        }
+        // Close back along the zero baseline
+        ctx.lineTo(pts[pts.length - 1].x, zeroY);
+        ctx.lineTo(pts[0].x, zeroY);
+        ctx.closePath();
+      };
+
+      ctx.save();
+
+      // Green fill — clip to region ABOVE the zero line
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, zeroY - chartArea.top);
+      ctx.clip();
+      tracePath();
+      ctx.fillStyle = 'rgba(76,175,145,0.22)';
+      ctx.fill();
+      ctx.restore();
+
+      // Red fill — clip to region BELOW the zero line
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(chartArea.left, zeroY, chartArea.right - chartArea.left, chartArea.bottom - zeroY);
+      ctx.clip();
+      tracePath();
+      ctx.fillStyle = 'rgba(224,92,92,0.22)';
+      ctx.fill();
+      ctx.restore();
+
+      ctx.restore();
+    }
+  };
+
+  const lineColor = getChartThemeColors().tick; // muted gray — theme-aware, works light + dark
+
   charts['trend'] = new Chart(document.getElementById('chart-trend'), {
     type: 'line',
-    data: { labels, datasets: [{ label: 'Net', data: netData, borderColor: PALETTE[2], backgroundColor: PALETTE[2] + '22', fill: true, tension: 0.4, pointRadius: 4, pointBackgroundColor: PALETTE[2] }] },
-    options: { ...baseOpts(), scales: { x: { ...axisStyle(), ticks: tickStyle() }, y: { ...axisStyle(), ticks: { ...tickStyle(), callback: v => v.toLocaleString() } } } }
+    data: {
+      labels,
+      datasets: [{
+        label: 'Net',
+        data: netData,
+        fill: false,
+        borderColor: lineColor,
+        backgroundColor: 'transparent',
+        tension: 0.4,
+        pointRadius: 4,
+        pointBackgroundColor: ctx => (ctx.parsed?.y ?? 0) >= 0 ? 'rgba(76,175,145,0.9)' : 'rgba(224,92,92,0.9)',
+        pointBorderColor:     ctx => (ctx.parsed?.y ?? 0) >= 0 ? 'rgba(76,175,145,1.0)' : 'rgba(224,92,92,1.0)',
+      }]
+    },
+    options: {
+      ...baseOpts(),
+      scales: {
+        x: { ...axisStyle(), ticks: tickStyle() },
+        y: { ...axisStyle(), ticks: { ...tickStyle(), callback: v => v.toLocaleString() } }
+      }
+    },
+    plugins: [netFillPlugin]
   });
 }
 
