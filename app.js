@@ -122,6 +122,7 @@ let subcategoryMap = {};
 let activeDrillCategory = null;
 let selectedTags = new Set();
 let tagFilterMode = 'AND'; // 'AND' | 'OR'
+let defaultExcludedCatIds = new Set();
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const PALETTE = [
@@ -161,21 +162,23 @@ window.addEventListener('load', async () => {
   const demoLoad = document.getElementById('demo-load-btn');
   const demoSheetInput = document.getElementById('demo-sheet-id');
   const demoGidsInput = document.getElementById('demo-gids');
-  if (demoBtn) demoBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    // Prefill public demo values
-    if (demoSheetInput) demoSheetInput.value = '1Ub6uzHLCIEj7f4zMVY96VhFcR3gRoz9xt9j8hp86oLk';
-    if (demoGidsInput) demoGidsInput.value = '0,1978512565';
-    if (demoOverlay) demoOverlay.style.display = 'flex';
-    if (demoSheetInput) demoSheetInput.focus();
-  });
+  // if (demoBtn) demoBtn.addEventListener('click', (e) => {
+  //   e.stopPropagation();
+  //   // Prefill public demo values
+  //   if (demoSheetInput) demoSheetInput.value = '1Ub6uzHLCIEj7f4zMVY96VhFcR3gRoz9xt9j8hp86oLk';
+  //   if (demoGidsInput) demoGidsInput.value = '0,1978512565';
+  //   if (demoOverlay) demoOverlay.style.display = 'block';
+  //   if (demoSheetInput) demoSheetInput.focus();
+  // });
   if (demoClose) demoClose.addEventListener('click', () => demoOverlay.style.display = 'none');
   if (demoCancel) demoCancel.addEventListener('click', () => demoOverlay.style.display = 'none');
   if (demoOverlay) demoOverlay.addEventListener('click', (e) => { if (e.target === demoOverlay) demoOverlay.style.display = 'none'; });
-  if (demoLoad) demoLoad.addEventListener('click', async () => {
-    const sid = (demoSheetInput && demoSheetInput.value || '').trim();
-    const gids = (demoGidsInput && demoGidsInput.value || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (!sid || gids.length === 0) { alert('Please enter sheet ID and at least one gid'); return; }
+  if (demoLoad) demoBtn.addEventListener('click', async () => {
+    // const sid = (demoSheetInput && demoSheetInput.value || '').trim();
+    // const gids = (demoGidsInput && demoGidsInput.value || '').split(',').map(s => s.trim()).filter(Boolean);
+    // if (!sid || gids.length === 0) { alert('Please enter sheet ID and at least one gid'); return; }
+    const sid = '1Ub6uzHLCIEj7f4zMVY96VhFcR3gRoz9xt9j8hp86oLk';
+    const gids = ['0', '1978512565'];
     demoOverlay.style.display = 'none';
     await loadPublicData(sid, gids);
   });
@@ -316,13 +319,37 @@ async function loadCategoryMap(sheetId) {
   }
 }
 
+async function loadDefaultExcludes(sheetId) {
+  try {
+    const range = encodeURIComponent('CONFIG.default.exclude!A:Z');
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) return; // tab doesn't exist or no access — silently skip
+    const rows = (await res.json()).values;
+    if (!rows || rows.length < 2) return;
+    const headers = rows[0].map(h => h.trim().toLowerCase());
+    const catIdCol = headers.indexOf('category_id');
+    if (catIdCol === -1) return;
+    rows.slice(1).forEach(r => {
+      const id = (r[catIdCol] || '').trim();
+      if (id) defaultExcludedCatIds.add(id);
+    });
+    console.log('[default excludes] loaded:', defaultExcludedCatIds.size, 'category IDs');
+  } catch(e) {
+    console.warn('Could not load CONFIG.default.exclude:', e);
+  }
+}
+
 async function loadAllData(sheetId) {
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('loading').style.display = 'block';
 
   categoryMap    = {};
   subcategoryMap = {};
+  defaultExcludedCatIds = new Set();
+
   await loadCategoryMap(sheetId);
+  await loadDefaultExcludes(sheetId);
 
   // Get Data from either Config File or only tabs named as 4-digit years only (e.g. "2020", "2021", etc.)
   const allTabs = await discoverSheetTabs(sheetId);
@@ -1153,8 +1180,19 @@ function populateMSOptions(key, items) {
     const safeVal = value.replace(/"/g, '&quot;');
     const safeLbl = label.replace(/</g, '&lt;');
 
-    const checked = key === 'tag' ? '' : 'checked';
-    div.innerHTML = `<input type="checkbox" id="${safeId}" value="${safeVal}" ${checked}> <label for="${safeId}">${safeLbl}</label>`;
+    // Handle default exclusion categories from config
+    let startChecked = true;
+    if (key === 'tag') {
+      startChecked = false; //
+    } else if (key === 'cat' && defaultExcludedCatIds.size > 0) {
+      const catId = Object.entries(categoryMap).find(([, name]) => name === value)?.[0];
+      if (catId && defaultExcludedCatIds.has(catId)) {
+        startChecked = false;
+        excluded.cat.add(value);
+      }
+    }
+
+    div.innerHTML = `<input type="checkbox" id="${safeId}" value="${safeVal}" ${startChecked ? 'checked' : ''}> <label for="${safeId}">${safeLbl}</label>`;
     div.addEventListener('click', e => e.stopPropagation());
     div.querySelector('input').addEventListener('change', e => {
       if (key === 'tag') {
