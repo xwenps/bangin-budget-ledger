@@ -601,7 +601,7 @@ function normalizeAmount(row, adapter) {
     case 'signed':               return parseNum(row[adapter.amountCol]);
     case 'amex_negate':           return -parseNum(row[adapter.amountCol]);
     case 'debit_credit':          return parseNum(row[adapter.creditCol]) - parseNum(row[adapter.debitCol]);
-    case 'debit_credit_negate':  return -parseNum(row[adapter.creditCol]) + parseNum(row[adapter.debitCol]);
+    case 'debit_credit_negate':  return -parseNum(row[adapter.creditCol]) - parseNum(row[adapter.debitCol]);
     default: return 0;
   }
 }
